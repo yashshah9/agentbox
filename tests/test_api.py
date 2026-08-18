@@ -49,3 +49,30 @@ def test_run_javascript() -> None:
     assert resp.status_code == 200
     assert "hello node" in resp.json()["stdout"]
     assert resp.json()["exit_code"] == 0
+
+
+def test_snapshot_restore_keeps_workspace_file() -> None:
+    first = client.post(
+        "/v1/run",
+        json={"code": "open('memo.txt','w').write('kept')", "snapshot": True},
+    )
+    assert first.status_code == 200
+    snapshot_id = first.json()["snapshot_id"]
+    assert snapshot_id
+    second = client.post(
+        "/v1/run",
+        json={
+            "code": "print(open('memo.txt').read())",
+            "snapshot_id": snapshot_id,
+        },
+    )
+    assert second.status_code == 200
+    assert "kept" in second.json()["stdout"]
+
+
+def test_unknown_snapshot_returns_400() -> None:
+    resp = client.post(
+        "/v1/run",
+        json={"code": "print(1)", "snapshot_id": "does-not-exist"},
+    )
+    assert resp.status_code == 400

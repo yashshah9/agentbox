@@ -2,7 +2,7 @@
 
 Self-hosted **code execution sandbox** for AI agents — one `docker compose up` gives you an HTTP API for running untrusted code in isolated environments.
 
-> **Status:** v0.2 — Python + Node subprocess sandbox, per-run timeouts, TypeScript client. gVisor isolation is next.
+> **Status:** v0.3 — Python + Node subprocess sandbox, per-run timeouts, TypeScript client, workspace snapshots.
 
 ## Problem
 

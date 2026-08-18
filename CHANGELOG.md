@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.0] - 2026-08-19
+
+### Added
+- Workspace snapshot/restore (`snapshot: true` / `snapshot_id`) so agents can keep files across runs
+
 ## [0.2.0] - 2026-08-19
 
 ### Added

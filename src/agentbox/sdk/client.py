@@ -18,10 +18,16 @@ class AgentboxClient:
         code: str,
         language: str = "python",
         timeout_seconds: int | None = None,
+        snapshot: bool = False,
+        snapshot_id: str | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {"code": code, "language": language}
         if timeout_seconds is not None:
             payload["limits"] = {"timeout_seconds": timeout_seconds}
+        if snapshot:
+            payload["snapshot"] = True
+        if snapshot_id:
+            payload["snapshot_id"] = snapshot_id
         resp = self._client.post("/v1/run", json=payload)
         resp.raise_for_status()
         return resp.json()

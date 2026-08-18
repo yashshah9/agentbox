@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from agentbox.sandbox.snapshots import restore_snapshot, save_snapshot
+
 
 @dataclass
 class RunResult:
@@ -18,6 +20,7 @@ class RunResult:
     stderr: str
     exit_code: int
     duration_ms: int
+    snapshot_id: str | None = None
 
 
 class Sandbox(Protocol):
@@ -36,22 +39,37 @@ class SubprocessSandbox:
         timeout_seconds: int = 30,
         max_output_bytes: int = 1_048_576,
         deny_egress: bool = False,
+        snapshot_dir: str | Path | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_output_bytes = max_output_bytes
         self.deny_egress = deny_egress
+        self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else Path("/tmp/agentbox-snapshots")
 
-    def run(self, code: str, language: str = "python", timeout_seconds: int | None = None) -> RunResult:
+    def run(
+        self,
+        code: str,
+        language: str = "python",
+        timeout_seconds: int | None = None,
+        snapshot_id: str | None = None,
+        persist_snapshot: bool = False,
+    ) -> RunResult:
         timeout = timeout_seconds or self.timeout_seconds
         start = time.monotonic()
         env = self._env()
         with tempfile.TemporaryDirectory(prefix="agentbox-") as tmp:
+            workspace = Path(tmp)
+            if snapshot_id:
+                try:
+                    restore_snapshot(snapshot_id, workspace, self.snapshot_dir)
+                except FileNotFoundError as exc:
+                    raise ValueError(str(exc)) from exc
             if language == "python":
-                script = Path(tmp) / "main.py"
+                script = workspace / "main.py"
                 script.write_text(code, encoding="utf-8")
                 argv = ["python3", str(script)]
             elif language in {"javascript", "node"}:
-                script = Path(tmp) / "main.js"
+                script = workspace / "main.js"
                 script.write_text(code, encoding="utf-8")
                 node = shutil.which("node") or "node"
                 argv = [node, str(script)]
@@ -68,12 +86,14 @@ class SubprocessSandbox:
                 )
             except FileNotFoundError as exc:
                 return RunResult("", str(exc), 127, int((time.monotonic() - start) * 1000))
+            new_snapshot = save_snapshot(workspace, self.snapshot_dir) if persist_snapshot else None
         duration = int((time.monotonic() - start) * 1000)
         return RunResult(
             stdout=proc.stdout[: self.max_output_bytes],
             stderr=proc.stderr[: self.max_output_bytes],
             exit_code=proc.returncode,
             duration_ms=duration,
+            snapshot_id=new_snapshot,
         )
 
     def run_python(self, code: str) -> RunResult:
@@ -83,7 +103,6 @@ class SubprocessSandbox:
         env = os.environ.copy()
         if not self.deny_egress:
             return env
-        # Strip credentials; full network namespace isolation is the gVisor milestone.
         for key in list(env):
             upper = key.upper()
             if any(token in upper for token in ("TOKEN", "SECRET", "PASSWORD", "API_KEY")):
