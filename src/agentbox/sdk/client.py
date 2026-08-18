@@ -13,8 +13,16 @@ class AgentboxClient:
         resp.raise_for_status()
         return resp.json()
 
-    def run(self, code: str, language: str = "python") -> dict[str, object]:
-        resp = self._client.post("/v1/run", json={"code": code, "language": language})
+    def run(
+        self,
+        code: str,
+        language: str = "python",
+        timeout_seconds: int | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {"code": code, "language": language}
+        if timeout_seconds is not None:
+            payload["limits"] = {"timeout_seconds": timeout_seconds}
+        resp = self._client.post("/v1/run", json=payload)
         resp.raise_for_status()
         return resp.json()
 

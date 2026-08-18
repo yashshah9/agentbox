@@ -2,19 +2,19 @@
 
 Self-hosted **code execution sandbox** for AI agents — one `docker compose up` gives you an HTTP API for running untrusted code in isolated environments.
 
-> **Status:** v0.1 foundation — FastAPI service with subprocess sandbox; gVisor/docker backends and snapshots are next.
+> **Status:** v0.2 — Python + Node subprocess sandbox, per-run timeouts, TypeScript client. gVisor isolation is next.
 
 ## Problem
 
 Every agent that writes and runs code needs a safe execution environment. Teams either YOLO in shared containers or pay per-second for hosted sandboxes. Self-hosting gVisor/Firecracker is weeks of work.
 
-## Key features (v0.1)
+## Key features (v0.2)
 
-- HTTP API: `POST /v1/run` executes Python code
-- Health endpoint for orchestration
-- Python SDK client
-- Configurable timeout and output limits
-- Docker Compose single-node deployment
+- HTTP API: `POST /v1/run` executes Python or JavaScript
+- Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
+- Python SDK + TypeScript client (`sdk/ts/client.ts`)
+- Docker image includes Node.js for the JS runtime
+- Credential stripping when the backend is not `unrestricted`
 
 ## Architecture
 
@@ -65,6 +65,7 @@ from agentbox.sdk.client import AgentboxClient
 client = AgentboxClient("http://localhost:8080")
 print(client.health())
 print(client.run("print('hello')"))
+print(client.run("console.log('hello')", language="javascript", timeout_seconds=5))
 client.close()
 ```
 
@@ -92,18 +93,18 @@ pytest tests/ -v
 
 ## Roadmap
 
+- [x] Node.js runtime + TypeScript client + per-run timeout
 - [ ] gVisor runsc backend with warm pool
 - [ ] Filesystem snapshot/restore
-- [ ] Node.js and shell runtimes
-- [ ] Default-deny egress with allowlists
+- [ ] Default-deny egress with allowlists (kernel netns)
 
 ## License
 
 MIT
 
-## Known limitations (v0.1)
+## Known limitations (v0.2)
 
 - Subprocess sandbox only — **not production-grade isolation**
-- Python runtime only
+- Credential stripping is not a network namespace
 - Single-node, no warm pool
-- No filesystem write API beyond temp script
+- TypeScript client is source-only (not published to npm)

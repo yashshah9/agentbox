@@ -13,14 +13,21 @@ settings = Settings()
 sandbox = SubprocessSandbox(
     timeout_seconds=settings.default_timeout_seconds,
     max_output_bytes=settings.max_output_bytes,
+    deny_egress=settings.sandbox_backend != "unrestricted",
 )
 
 app = FastAPI(title="agentbox", version=__version__)
 
 
+class ResourceLimits(BaseModel):
+    timeout_seconds: int | None = Field(default=None, ge=1, le=300)
+    max_output_bytes: int | None = Field(default=None, ge=1024)
+
+
 class RunRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=100_000)
     language: str = "python"
+    limits: ResourceLimits | None = None
 
 
 class RunResponse(BaseModel):
@@ -28,6 +35,8 @@ class RunResponse(BaseModel):
     stderr: str
     exit_code: int
     duration_ms: int
+    language: str
+    backend: str
 
 
 @app.get("/health")
@@ -37,15 +46,25 @@ def health() -> dict[str, str]:
 
 @app.post("/v1/run", response_model=RunResponse)
 def run_code(req: RunRequest) -> RunResponse:
-    if req.language != "python":
+    language = req.language.lower()
+    if language not in {"python", "javascript", "node"}:
         raise HTTPException(status_code=400, detail=f"Unsupported language: {req.language}")
+    timeout = (
+        req.limits.timeout_seconds
+        if req.limits and req.limits.timeout_seconds
+        else settings.default_timeout_seconds
+    )
     try:
-        result = sandbox.run_python(req.code)
+        result = sandbox.run(req.code, language=language, timeout_seconds=timeout)
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=408, detail="Execution timed out") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RunResponse(
         stdout=result.stdout,
         stderr=result.stderr,
         exit_code=result.exit_code,
         duration_ms=result.duration_ms,
+        language=language,
+        backend=settings.sandbox_backend,
     )

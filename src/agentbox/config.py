@@ -11,4 +11,4 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     default_timeout_seconds: int = 30
     max_output_bytes: int = 1_048_576
-    sandbox_backend: str = "subprocess"  # subprocess | docker (future)
+    sandbox_backend: str = "subprocess"  # subprocess | gvisor (future)
