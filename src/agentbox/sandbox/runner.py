@@ -83,9 +83,10 @@ class SubprocessSandbox:
                     timeout=timeout,
                     cwd=tmp,
                     env=env,
+                    check=False,
                 )
             except FileNotFoundError as exc:
-                return RunResult("", str(exc), 127, int((time.monotonic() - start) * 1000))
+                raise ValueError(f"Runtime not found: {exc}") from exc
             new_snapshot = save_snapshot(workspace, self.snapshot_dir) if persist_snapshot else None
         duration = int((time.monotonic() - start) * 1000)
         return RunResult(

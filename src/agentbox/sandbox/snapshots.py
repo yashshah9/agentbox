@@ -13,7 +13,7 @@ def save_snapshot(workspace: Path, snapshot_dir: Path) -> str:
     archive = snapshot_dir / f"{snapshot_id}.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         for path in workspace.rglob("*"):
-            if path.name in {"main.py", "main.js"}:
+            if not path.is_file() or path.name in {"main.py", "main.js"}:
                 continue
             tar.add(path, arcname=path.relative_to(workspace))
     return snapshot_id

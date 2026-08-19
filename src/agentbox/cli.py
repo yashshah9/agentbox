@@ -3,10 +3,12 @@
 import click
 import uvicorn
 
+from agentbox import __version__
 from agentbox.config import Settings
 
 
 @click.group()
+@click.version_option(__version__)
 def main() -> None:
     """Self-hosted code execution sandbox for AI agents."""
 
@@ -26,7 +28,7 @@ def serve(host: str | None, port: int | None) -> None:
 
 @main.command("health")
 def health_cmd() -> None:
-    click.echo("agentbox OK")
+    click.echo(f"agentbox {__version__} OK")
 
 
 if __name__ == "__main__":

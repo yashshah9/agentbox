@@ -12,6 +12,7 @@ Every agent that writes and runs code needs a safe execution environment. Teams 
 
 - HTTP API: `POST /v1/run` executes Python or JavaScript
 - Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
+- Workspace snapshots: `"snapshot": true` then `"snapshot_id"`
 - Python SDK + TypeScript client (`sdk/ts/client.ts`)
 - Docker image includes Node.js for the JS runtime
 - Credential stripping when the backend is not `unrestricted`
@@ -66,6 +67,8 @@ client = AgentboxClient("http://localhost:8080")
 print(client.health())
 print(client.run("print('hello')"))
 print(client.run("console.log('hello')", language="javascript", timeout_seconds=5))
+snap = client.run("open('memo.txt','w').write('kept')", snapshot=True)
+print(client.run("print(open('memo.txt').read())", snapshot_id=snap["snapshot_id"]))
 client.close()
 ```
 
@@ -84,6 +87,7 @@ docker compose run --rm test    # run unit tests
 | `AGENTBOX_PORT` | `8080` | Bind port |
 | `AGENTBOX_DEFAULT_TIMEOUT_SECONDS` | `30` | Execution timeout |
 | `AGENTBOX_SANDBOX_BACKEND` | `subprocess` | Backend selector |
+| `AGENTBOX_SNAPSHOT_DIR` | `/tmp/agentbox-snapshots` | Workspace snapshot store |
 
 ## Running tests
 
@@ -94,15 +98,15 @@ pytest tests/ -v
 ## Roadmap
 
 - [x] Node.js runtime + TypeScript client + per-run timeout
+- [x] Filesystem snapshot/restore (tar workspaces)
 - [ ] gVisor runsc backend with warm pool
-- [ ] Filesystem snapshot/restore
 - [ ] Default-deny egress with allowlists (kernel netns)
 
 ## License
 
 MIT
 
-## Known limitations (v0.2)
+## Known limitations (v0.3)
 
 - Subprocess sandbox only — **not production-grade isolation**
 - Credential stripping is not a network namespace
