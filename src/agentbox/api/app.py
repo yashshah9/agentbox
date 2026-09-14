@@ -50,6 +50,7 @@ class RunResponse(BaseModel):
     snapshot_id: str | None = None
     limits_applied: LimitsApplied
     oom_killed: bool = False
+    network_isolated: bool = False
 
 
 @app.get("/health")
@@ -97,4 +98,5 @@ def run_code(req: RunRequest) -> RunResponse:
         snapshot_id=result.snapshot_id,
         limits_applied=LimitsApplied(timeout_seconds=timeout, memory_mb=memory_mb),
         oom_killed=result.oom_killed,
+        network_isolated=result.network_isolated,
     )

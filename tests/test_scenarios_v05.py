@@ -20,13 +20,13 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
-def test_health_version_050(client: TestClient) -> None:
+def test_health_version_060(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.5.0"
-    assert __version__ == "0.5.0"
+    assert body["version"] == "0.6.0"
+    assert __version__ == "0.6.0"
 
 
 def test_python_success(client: TestClient) -> None:
@@ -202,6 +202,7 @@ def test_sdk_client_run_response_fields(client: TestClient) -> None:
     assert body["limits_applied"]["memory_mb"] == 64
     assert body["limits_applied"]["timeout_seconds"] == 10
     assert "oom_killed" in body
+    assert "network_isolated" in body
 
     captured: dict[str, object] = {}
 
@@ -229,6 +230,7 @@ def test_sdk_client_run_response_fields(client: TestClient) -> None:
         }
         assert result["limits_applied"]["memory_mb"] == 64
         assert "oom_killed" in result
+        assert "network_isolated" in result
     finally:
         sdk.close()
 

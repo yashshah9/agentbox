@@ -7,7 +7,7 @@ Self-hosted **code execution sandbox** for AI agents — one `docker compose up`
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml/badge.svg)](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml)
 
-> **Status:** v0.5 — Python + Node subprocess sandbox, timeouts, `limits.memory_mb` / `oom_killed` / `limits_applied`, TypeScript client, workspace snapshots.
+> **Status:** v0.6 — Python + Node subprocess sandbox, timeouts, memory limits, Linux default-deny egress (`unshare`/`bwrap`) with `network_isolated`, TypeScript client, workspace snapshots.
 
 ## 60-second try
 
@@ -34,16 +34,17 @@ curl -s -X POST http://localhost:8080/v1/run \
 
 Every agent that writes and runs code needs a safe execution environment. Teams either YOLO in shared containers or pay per-second for hosted sandboxes. Self-hosting gVisor/Firecracker is weeks of work.
 
-## Key features (v0.5)
+## Key features (v0.6)
 
 - HTTP API: `POST /v1/run` executes Python or JavaScript
 - Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
 - Per-request `limits.memory_mb` (sets `RLIMIT_AS`; 16–8192); response includes `limits_applied` + `oom_killed`
 - `AGENTBOX_MAX_MEMORY_MB` clamps requested memory
+- Default-deny egress when possible: Linux wraps with `unshare --net` or `bwrap --unshare-net`; response includes `network_isolated`
 - Workspace snapshots: `"snapshot": true` then `"snapshot_id"`
 - Python SDK + TypeScript client (`sdk/ts/client.ts`)
 - Docker image includes Node.js for the JS runtime
-- Credential stripping when the backend is not `unrestricted`
+- Credential stripping when the backend is not `unrestricted` (macOS stays scrub-only)
 
 ## Architecture
 
@@ -135,17 +136,18 @@ pytest tests/ -v
 - [x] Node.js runtime + TypeScript client + per-run timeout
 - [x] Filesystem snapshot/restore (tar workspaces)
 - [x] `limits.memory_mb` via `RLIMIT_AS`
+- [x] Default-deny egress via Linux netns (`unshare`/`bwrap`) when available
 - [ ] gVisor runsc backend with warm pool
-- [ ] Default-deny egress with allowlists (kernel netns)
+- [ ] Egress allowlists (beyond all-or-nothing netns)
 
 ## License
 
 MIT
 
-## Known limitations (v0.4)
+## Known limitations (v0.6)
 
 - Subprocess sandbox only — **not production-grade isolation**
 - `RLIMIT_AS` is a soft address-space cap, not a cgroup memory controller
-- Credential stripping is not a network namespace
+- Default-deny egress uses Linux `unshare`/`bwrap` when present; **macOS stays credential-scrub only** (`network_isolated: false`)
 - Single-node, no warm pool
 - TypeScript client is source-only (not published to npm)

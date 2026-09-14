@@ -17,6 +17,7 @@ export type RunResult = {
   snapshot_id?: string | null;
   limits_applied: LimitsApplied;
   oom_killed: boolean;
+  network_isolated: boolean;
 };
 
 export class AgentboxClient {

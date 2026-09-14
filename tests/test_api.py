@@ -31,6 +31,8 @@ def test_run_python(client: TestClient) -> None:
     assert body["limits_applied"]["timeout_seconds"] >= 1
     assert "memory_mb" in body["limits_applied"]
     assert body["oom_killed"] is False
+    assert "network_isolated" in body
+    assert isinstance(body["network_isolated"], bool)
 
 
 def test_run_rejects_unknown_language(client: TestClient) -> None:

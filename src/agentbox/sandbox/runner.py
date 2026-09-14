@@ -23,6 +23,7 @@ class RunResult:
     duration_ms: int
     snapshot_id: str | None = None
     oom_killed: bool = False
+    network_isolated: bool = False
 
 
 class Sandbox(Protocol):
@@ -32,6 +33,9 @@ class Sandbox(Protocol):
 
 class SubprocessSandbox:
     """MVP sandbox: isolated temp directory + subprocess timeout + optional memory cap.
+
+    When deny_egress is set, also tries Linux network-namespace isolation via
+    unshare/bwrap when available. macOS stays credential-scrub only.
 
     ponytail: not production isolation — upgrade path is gVisor/docker backend.
     """
@@ -81,6 +85,9 @@ class SubprocessSandbox:
                 argv = [node, str(script)]
             else:
                 raise ValueError(f"Unsupported language: {language}")
+            network_isolated = False
+            if self.deny_egress:
+                argv, network_isolated = wrap_deny_egress(argv)
             preexec = _memory_preexec(mem) if mem else None
             try:
                 proc = subprocess.run(
@@ -107,6 +114,7 @@ class SubprocessSandbox:
             duration_ms=duration,
             snapshot_id=new_snapshot,
             oom_killed=_likely_oom(exit_code, stdout, stderr, mem),
+            network_isolated=network_isolated,
         )
 
     def run_python(self, code: str) -> RunResult:
@@ -123,6 +131,55 @@ class SubprocessSandbox:
         env.pop("AWS_SECRET_ACCESS_KEY", None)
         env.pop("OPENAI_API_KEY", None)
         return env
+
+
+def wrap_deny_egress(argv: list[str]) -> tuple[list[str], bool]:
+    """Wrap argv with a network namespace when unshare or bwrap can isolate.
+
+    Prefer ``unshare --net``; fall back to ``bwrap --unshare-net``. Probes first so
+    we do not wrap when the binary exists but lacks privileges (common in
+    unprivileged containers). Returns ``(argv, network_isolated)``.
+    """
+    unshare = shutil.which("unshare")
+    if unshare and _can_isolate([unshare, "--net", "true"]):
+        return [unshare, "--net", "--", *argv], True
+    bwrap = shutil.which("bwrap")
+    if bwrap:
+        probe = [
+            bwrap,
+            "--unshare-net",
+            "--bind",
+            "/",
+            "/",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--",
+            "true",
+        ]
+        if _can_isolate(probe):
+            return [
+                bwrap,
+                "--unshare-net",
+                "--bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "--proc",
+                "/proc",
+                "--",
+                *argv,
+            ], True
+    return argv, False
+
+
+def _can_isolate(cmd: list[str]) -> bool:
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=2, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def _likely_oom(exit_code: int, stdout: str, stderr: str, memory_mb: int | None) -> bool:

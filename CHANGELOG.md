@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-09-14
+
+### Added
+- Real default-deny egress on Linux when possible: wrap runs with `unshare --net` (preferred) or `bwrap --unshare-net`
+- Run response includes `network_isolated` so callers know whether netns wrapping applied
+
+### Notes
+- macOS and hosts without `unshare`/`bwrap` still scrub credentials only (`network_isolated: false`)
+
 ## [0.5.0] - 2026-09-14
 
 ### Added
