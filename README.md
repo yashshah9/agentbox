@@ -2,6 +2,7 @@
 
 Self-hosted **code execution sandbox** for AI agents — one `docker compose up` gives you an HTTP API for running untrusted code in isolated environments.
 
+[![PyPI](https://img.shields.io/pypi/v/agentbox-sandbox.svg)](https://pypi.org/project/agentbox-sandbox/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml/badge.svg)](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml)
@@ -11,13 +12,13 @@ Self-hosted **code execution sandbox** for AI agents — one `docker compose up`
 ## 60-second try
 
 ```bash
-docker compose up agentbox        # API on :8080
-# in another shell:
+pip install agentbox-sandbox
+agentbox serve   # API on :8080
+# or: docker compose up agentbox
 curl -s http://localhost:8080/health
 curl -s -X POST http://localhost:8080/v1/run \
   -H 'Content-Type: application/json' \
   -d '{"code":"print(sum(range(10)))"}'
-docker compose run --rm test      # pytest
 ```
 
 ## Why this vs alternatives
@@ -33,11 +34,12 @@ docker compose run --rm test      # pytest
 
 Every agent that writes and runs code needs a safe execution environment. Teams either YOLO in shared containers or pay per-second for hosted sandboxes. Self-hosting gVisor/Firecracker is weeks of work.
 
-## Key features (v0.4)
+## Key features (v0.5)
 
 - HTTP API: `POST /v1/run` executes Python or JavaScript
 - Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
 - Per-request `limits.memory_mb` (sets `RLIMIT_AS`; 16–8192); response includes `limits_applied` + `oom_killed`
+- `AGENTBOX_MAX_MEMORY_MB` clamps requested memory
 - Workspace snapshots: `"snapshot": true` then `"snapshot_id"`
 - Python SDK + TypeScript client (`sdk/ts/client.ts`)
 - Docker image includes Node.js for the JS runtime
