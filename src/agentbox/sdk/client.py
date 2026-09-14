@@ -22,10 +22,16 @@ class AgentboxClient:
         timeout_seconds: int | None = None,
         snapshot: bool = False,
         snapshot_id: str | None = None,
+        memory_mb: int | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {"code": code, "language": language}
+        limits: dict[str, object] = {}
         if timeout_seconds is not None:
-            payload["limits"] = {"timeout_seconds": timeout_seconds}
+            limits["timeout_seconds"] = timeout_seconds
+        if memory_mb is not None:
+            limits["memory_mb"] = memory_mb
+        if limits:
+            payload["limits"] = limits
         if snapshot:
             payload["snapshot"] = True
         if snapshot_id:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import resource
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +30,7 @@ class Sandbox(Protocol):
 
 
 class SubprocessSandbox:
-    """MVP sandbox: isolated temp directory + subprocess timeout.
+    """MVP sandbox: isolated temp directory + subprocess timeout + optional memory cap.
 
     ponytail: not production isolation — upgrade path is gVisor/docker backend.
     """
@@ -40,11 +41,13 @@ class SubprocessSandbox:
         max_output_bytes: int = 1_048_576,
         deny_egress: bool = False,
         snapshot_dir: str | Path | None = None,
+        default_memory_mb: int | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_output_bytes = max_output_bytes
         self.deny_egress = deny_egress
         self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else Path("/tmp/agentbox-snapshots")
+        self.default_memory_mb = default_memory_mb
 
     def run(
         self,
@@ -53,8 +56,10 @@ class SubprocessSandbox:
         timeout_seconds: int | None = None,
         snapshot_id: str | None = None,
         persist_snapshot: bool = False,
+        memory_mb: int | None = None,
     ) -> RunResult:
         timeout = timeout_seconds or self.timeout_seconds
+        mem = memory_mb if memory_mb is not None else self.default_memory_mb
         start = time.monotonic()
         env = self._env()
         with tempfile.TemporaryDirectory(prefix="agentbox-") as tmp:
@@ -75,6 +80,7 @@ class SubprocessSandbox:
                 argv = [node, str(script)]
             else:
                 raise ValueError(f"Unsupported language: {language}")
+            preexec = _memory_preexec(mem) if mem else None
             try:
                 proc = subprocess.run(
                     argv,
@@ -84,6 +90,7 @@ class SubprocessSandbox:
                     cwd=tmp,
                     env=env,
                     check=False,
+                    preexec_fn=preexec,
                 )
             except FileNotFoundError as exc:
                 raise ValueError(f"Runtime not found: {exc}") from exc
@@ -111,3 +118,17 @@ class SubprocessSandbox:
         env.pop("AWS_SECRET_ACCESS_KEY", None)
         env.pop("OPENAI_API_KEY", None)
         return env
+
+
+def _memory_preexec(memory_mb: int):
+    """Return a preexec_fn that caps address space for the child process."""
+
+    bytes_limit = max(1, memory_mb) * 1024 * 1024
+
+    def _set() -> None:
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        # Keep within existing hard limit when the OS publishes one.
+        cap = bytes_limit if hard == resource.RLIM_INFINITY else min(bytes_limit, hard)
+        resource.setrlimit(resource.RLIMIT_AS, (cap, hard if hard != resource.RLIM_INFINITY else cap))
+
+    return _set

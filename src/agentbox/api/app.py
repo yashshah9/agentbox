@@ -15,6 +15,7 @@ sandbox = SubprocessSandbox(
     max_output_bytes=settings.max_output_bytes,
     deny_egress=settings.sandbox_backend != "unrestricted",
     snapshot_dir=settings.snapshot_dir,
+    default_memory_mb=settings.default_memory_mb,
 )
 
 app = FastAPI(title="agentbox", version=__version__)
@@ -23,6 +24,7 @@ app = FastAPI(title="agentbox", version=__version__)
 class ResourceLimits(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=1, le=300)
     max_output_bytes: int | None = Field(default=None, ge=1024)
+    memory_mb: int | None = Field(default=None, ge=16, le=8192)
 
 
 class RunRequest(BaseModel):
@@ -58,6 +60,7 @@ def run_code(req: RunRequest) -> RunResponse:
         if req.limits and req.limits.timeout_seconds
         else settings.default_timeout_seconds
     )
+    memory_mb = req.limits.memory_mb if req.limits else None
     try:
         result = sandbox.run(
             req.code,
@@ -65,6 +68,7 @@ def run_code(req: RunRequest) -> RunResponse:
             timeout_seconds=timeout,
             snapshot_id=req.snapshot_id,
             persist_snapshot=req.snapshot,
+            memory_mb=memory_mb,
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=408, detail="Execution timed out") from exc

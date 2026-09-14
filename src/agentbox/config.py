@@ -13,3 +13,4 @@ class Settings(BaseSettings):
     max_output_bytes: int = 1_048_576
     sandbox_backend: str = "subprocess"  # subprocess | gvisor (future)
     snapshot_dir: str = "/tmp/agentbox-snapshots"
+    default_memory_mb: int | None = None

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2026-09-14
+
+### Added
+- `limits.memory_mb` on `POST /v1/run` — applies `RLIMIT_AS` in the child process (16–8192 MB)
+- Optional `AGENTBOX_DEFAULT_MEMORY_MB` and SDK `memory_mb=` passthrough
+
 ## [0.3.0] - 2026-08-19
 
 ### Added

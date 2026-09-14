@@ -81,3 +81,18 @@ def test_unknown_snapshot_returns_400(client: TestClient) -> None:
         json={"code": "print(1)", "snapshot_id": "does-not-exist"},
     )
     assert resp.status_code == 400
+
+
+def test_memory_limit_kills_huge_allocation(client: TestClient) -> None:
+    resp = client.post(
+        "/v1/run",
+        json={
+            "code": "x = bytearray(200 * 1024 * 1024); print(len(x))",
+            "limits": {"memory_mb": 32, "timeout_seconds": 5},
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # RLIMIT_AS should prevent the allocation from succeeding.
+    assert body["exit_code"] != 0 or "MemoryError" in body["stderr"] or body["stdout"] == ""
+    assert "209715200" not in body.get("stdout", "")
