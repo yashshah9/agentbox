@@ -62,7 +62,7 @@ Agent / SDK
 ## Installation
 
 ```bash
-pip install agentbox
+pip install agentbox-sandbox
 pip install -e ".[dev]"
 ```
 
