@@ -7,7 +7,7 @@ Self-hosted **code execution sandbox** for AI agents — one `docker compose up`
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml/badge.svg)](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml)
 
-> **Status:** v0.6 — Python + Node subprocess sandbox, timeouts, memory limits, Linux default-deny egress (`unshare`/`bwrap`) with `network_isolated`, TypeScript client, workspace snapshots.
+> **Status:** v0.7 — Python + Node execution, **Docker sandbox backend** (recommended isolation), subprocess default for local tests, timeouts, memory limits, Linux netns egress deny, TypeScript client, workspace snapshots.
 
 ## 60-second try
 
@@ -25,7 +25,7 @@ curl -s -X POST http://localhost:8080/v1/run \
 
 | Approach | Strength | Gap |
 |----------|----------|-----|
-| **agentbox** | Self-hosted HTTP API + SDK, one compose file | Subprocess isolation today, not gVisor |
+| **agentbox** | Self-hosted HTTP API + SDK; Docker or subprocess backends | Not gVisor/Firecracker (yet) |
 | Hosted sandboxes (E2B, etc.) | Strong isolation, managed | Per-second cost; data leaves your network |
 | Raw `docker exec` | Familiar | No agent-oriented API / snapshots / limits |
 | YOLO in the agent process | Zero infra | Full host compromise risk |
@@ -34,25 +34,26 @@ curl -s -X POST http://localhost:8080/v1/run \
 
 Every agent that writes and runs code needs a safe execution environment. Teams either YOLO in shared containers or pay per-second for hosted sandboxes. Self-hosting gVisor/Firecracker is weeks of work.
 
-## Key features (v0.6)
+## Key features (v0.7)
 
 - HTTP API: `POST /v1/run` executes Python or JavaScript
+- **Docker backend** (`AGENTBOX_SANDBOX_BACKEND=docker`): ephemeral `docker run --rm`, `--network=none`, optional `--memory`, workspace at `/work`
+- Subprocess backend remains the **default** for easy local tests
 - Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
-- Per-request `limits.memory_mb` (sets `RLIMIT_AS`; 16–8192); response includes `limits_applied` + `oom_killed`
+- Per-request `limits.memory_mb` (Docker `--memory` or subprocess `RLIMIT_AS`); response includes `limits_applied` + `oom_killed`
 - `AGENTBOX_MAX_MEMORY_MB` clamps requested memory
-- Default-deny egress when possible: Linux wraps with `unshare --net` or `bwrap --unshare-net`; response includes `network_isolated`
+- Default-deny egress: Docker uses `--network=none`; subprocess uses Linux `unshare`/`bwrap` when available (`network_isolated` in response)
 - Workspace snapshots: `"snapshot": true` then `"snapshot_id"`
 - Python SDK + TypeScript client (`sdk/ts/client.ts`)
-- Docker image includes Node.js for the JS runtime
-- Credential stripping when the backend is not `unrestricted` (macOS stays scrub-only)
+- Credential stripping when the backend is not `unrestricted`
 
 ## Architecture
 
 ```
 Agent / SDK
     └── POST /v1/run
-            └── SubprocessSandbox (MVP)
-                    └── (next) gVisor / Docker backend
+            ├── SubprocessSandbox (default — easy tests)
+            └── DockerSandbox (recommended — stronger isolation)
 ```
 
 | Component | Technology | Why |
@@ -60,6 +61,7 @@ Agent / SDK
 | API | FastAPI | Async-ready, OpenAPI docs, widely adopted |
 | Server | uvicorn | Standard ASGI server |
 | Config | pydantic-settings | Typed env config |
+| Isolation | Docker / subprocess | Docker for production; subprocess for CI/dev |
 | Tests | pytest + httpx TestClient | Fast API testing |
 
 ## Installation
@@ -78,6 +80,20 @@ agentbox serve
 # or
 docker compose up agentbox
 ```
+
+### Recommended: Docker sandbox backend
+
+Requires the Docker CLI (and a reachable daemon) on the host running agentbox:
+
+```bash
+export AGENTBOX_SANDBOX_BACKEND=docker
+# optional:
+# export AGENTBOX_DOCKER_IMAGE=python:3.12-slim
+# export AGENTBOX_DOCKER_NODE_IMAGE=node:20-slim
+agentbox serve
+```
+
+Each `/v1/run` starts an ephemeral container, mounts a temp workspace at `/work`, applies timeout on `docker run`, and removes the container (`--rm`). Health and run responses report `backend: "docker"`.
 
 ### Run code
 
@@ -113,6 +129,8 @@ docker compose up agentbox        # start API on :8080
 docker compose run --rm test    # run unit tests
 ```
 
+Note: using `AGENTBOX_SANDBOX_BACKEND=docker` from inside a container needs Docker socket access (DinD / mounted socket). Prefer running the API on the host with the Docker backend, or keep the compose service on `subprocess`.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -120,23 +138,28 @@ docker compose run --rm test    # run unit tests
 | `AGENTBOX_HOST` | `0.0.0.0` | Bind host |
 | `AGENTBOX_PORT` | `8080` | Bind port |
 | `AGENTBOX_DEFAULT_TIMEOUT_SECONDS` | `30` | Execution timeout |
-| `AGENTBOX_DEFAULT_MEMORY_MB` | unset | Optional default `RLIMIT_AS` cap |
-| `AGENTBOX_MAX_MEMORY_MB` | unset | Clamp requested `memory_mb` to this max |
-| `AGENTBOX_SANDBOX_BACKEND` | `subprocess` | Backend selector |
+| `AGENTBOX_DEFAULT_MEMORY_MB` | unset | Optional default memory cap |
+| `AGENTBOX_MAX_MEMORY_MB` | `8192` | Clamp requested `memory_mb` to this max |
+| `AGENTBOX_SANDBOX_BACKEND` | `subprocess` | `subprocess` \| `docker` \| `unrestricted` |
+| `AGENTBOX_DOCKER_IMAGE` | `python:3.12-slim` | Image for Python runs (docker backend) |
+| `AGENTBOX_DOCKER_NODE_IMAGE` | `node:20-slim` | Image for JavaScript runs (docker backend) |
 | `AGENTBOX_SNAPSHOT_DIR` | `/tmp/agentbox-snapshots` | Workspace snapshot store |
 
 ## Running tests
 
 ```bash
 pytest tests/ -v
+# Docker unit tests mock the CLI; live Docker run is skipped if docker is unavailable
+pytest tests/test_docker.py -v
 ```
 
 ## Roadmap
 
 - [x] Node.js runtime + TypeScript client + per-run timeout
 - [x] Filesystem snapshot/restore (tar workspaces)
-- [x] `limits.memory_mb` via `RLIMIT_AS`
+- [x] `limits.memory_mb` via `RLIMIT_AS` / Docker `--memory`
 - [x] Default-deny egress via Linux netns (`unshare`/`bwrap`) when available
+- [x] Docker ephemeral-container backend
 - [ ] gVisor runsc backend with warm pool
 - [ ] Egress allowlists (beyond all-or-nothing netns)
 
@@ -144,10 +167,11 @@ pytest tests/ -v
 
 MIT
 
-## Known limitations (v0.6)
+## Known limitations (v0.7)
 
-- Subprocess sandbox only — **not production-grade isolation**
-- `RLIMIT_AS` is a soft address-space cap, not a cgroup memory controller
-- Default-deny egress uses Linux `unshare`/`bwrap` when present; **macOS stays credential-scrub only** (`network_isolated: false`)
+- **Subprocess** default is convenient for tests — **not production-grade isolation**; use `AGENTBOX_SANDBOX_BACKEND=docker` for stronger isolation
+- Docker backend needs a local Docker CLI/daemon; missing CLI returns a clear 400
+- Subprocess `RLIMIT_AS` is a soft address-space cap, not a cgroup memory controller (Docker uses `--memory`)
+- Subprocess default-deny egress uses Linux `unshare`/`bwrap` when present; **macOS stays credential-scrub only** (`network_isolated: false`)
 - Single-node, no warm pool
 - TypeScript client is source-only (not published to npm)

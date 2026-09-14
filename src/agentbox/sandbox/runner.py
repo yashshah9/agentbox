@@ -37,7 +37,7 @@ class SubprocessSandbox:
     When deny_egress is set, also tries Linux network-namespace isolation via
     unshare/bwrap when available. macOS stays credential-scrub only.
 
-    ponytail: not production isolation — upgrade path is gVisor/docker backend.
+    ponytail: not production isolation — use DockerSandbox for stronger isolation.
     """
 
     def __init__(

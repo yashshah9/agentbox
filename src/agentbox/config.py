@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     default_timeout_seconds: int = 30
     max_output_bytes: int = 1_048_576
-    sandbox_backend: str = "subprocess"  # subprocess | gvisor (future)
+    sandbox_backend: str = "subprocess"  # subprocess | docker | unrestricted
     snapshot_dir: str = "/tmp/agentbox-snapshots"
     default_memory_mb: int | None = None
     max_memory_mb: int = 8192
+    docker_image: str = "python:3.12-slim"
+    docker_node_image: str = "node:20-slim"

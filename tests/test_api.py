@@ -19,7 +19,9 @@ def client() -> Iterator[TestClient]:
 def test_health(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["backend"] == "subprocess"
 
 
 def test_run_python(client: TestClient) -> None:
@@ -33,6 +35,7 @@ def test_run_python(client: TestClient) -> None:
     assert body["oom_killed"] is False
     assert "network_isolated" in body
     assert isinstance(body["network_isolated"], bool)
+    assert body["backend"] == "subprocess"
 
 
 def test_run_rejects_unknown_language(client: TestClient) -> None:

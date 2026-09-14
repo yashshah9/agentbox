@@ -7,16 +7,43 @@ from pydantic import BaseModel, Field
 
 from agentbox import __version__
 from agentbox.config import Settings
+from agentbox.sandbox.docker import DockerSandbox
 from agentbox.sandbox.runner import SubprocessSandbox
 
+
+def create_sandbox(settings: Settings) -> SubprocessSandbox | DockerSandbox:
+    """Select execution backend from settings."""
+    backend = settings.sandbox_backend.lower().strip()
+    if backend == "docker":
+        return DockerSandbox(
+            timeout_seconds=settings.default_timeout_seconds,
+            max_output_bytes=settings.max_output_bytes,
+            snapshot_dir=settings.snapshot_dir,
+            default_memory_mb=settings.default_memory_mb,
+            deny_egress=True,
+            docker_image=settings.docker_image,
+            docker_node_image=settings.docker_node_image,
+        )
+    if backend == "unrestricted":
+        return SubprocessSandbox(
+            timeout_seconds=settings.default_timeout_seconds,
+            max_output_bytes=settings.max_output_bytes,
+            snapshot_dir=settings.snapshot_dir,
+            default_memory_mb=settings.default_memory_mb,
+            deny_egress=False,
+        )
+    # Default: subprocess (easy local tests; not production isolation)
+    return SubprocessSandbox(
+        timeout_seconds=settings.default_timeout_seconds,
+        max_output_bytes=settings.max_output_bytes,
+        snapshot_dir=settings.snapshot_dir,
+        default_memory_mb=settings.default_memory_mb,
+        deny_egress=True,
+    )
+
+
 settings = Settings()
-sandbox = SubprocessSandbox(
-    timeout_seconds=settings.default_timeout_seconds,
-    max_output_bytes=settings.max_output_bytes,
-    deny_egress=settings.sandbox_backend != "unrestricted",
-    snapshot_dir=settings.snapshot_dir,
-    default_memory_mb=settings.default_memory_mb,
-)
+sandbox = create_sandbox(settings)
 
 app = FastAPI(title="agentbox", version=__version__)
 

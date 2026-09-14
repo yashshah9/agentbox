@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.0] - 2026-09-14
+
+### Added
+- Production-oriented **Docker sandbox backend** (`AGENTBOX_SANDBOX_BACKEND=docker`)
+  - Ephemeral `docker run --rm` with workspace mounted at `/work`
+  - `--network=none` by default; `--memory` from `limits.memory_mb`
+  - Images: `AGENTBOX_DOCKER_IMAGE` (default `python:3.12-slim`), `AGENTBOX_DOCKER_NODE_IMAGE` (default `node:20-slim`)
+  - Snapshots still work via host-side tar of the mounted workspace
+- Clear error when the `docker` CLI is missing
+- `sandbox_backend` values: `subprocess` (default) | `docker` | `unrestricted`
+
+### Notes
+- Subprocess remains the default for easy local tests; Docker is recommended for stronger isolation
+
 ## [0.6.0] - 2026-09-14
 
 ### Added

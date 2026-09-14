@@ -6,10 +6,11 @@ Email **yash376351@gmail.com** with the repo name, a short description, and step
 
 ## Threat model (honest)
 
-agentbox executes **untrusted code** on your machine via a subprocess sandbox.
+agentbox executes **untrusted code** on your machine via a configurable sandbox backend.
 
-- The current backend is **subprocess + optional `RLIMIT_AS`**, not gVisor/Firecracker. Do **not** expose it to the public internet as-is.
-- Credential stripping and timeouts reduce accidents; they are **not** a kernel isolation story.
-- `limits.memory_mb` caps address space via `RLIMIT_AS` — it is not a cgroup memory controller and behavior differs by OS.
+- **Recommended:** `AGENTBOX_SANDBOX_BACKEND=docker` — ephemeral containers (`--rm`, `--network=none`, optional `--memory`). Still not gVisor/Firecracker; do **not** expose it to the public internet without additional hardening/auth.
+- **Default:** `subprocess` + optional `RLIMIT_AS` — convenient for local tests, **not** production-grade isolation.
+- Credential stripping and timeouts reduce accidents; they are **not** a full kernel isolation story.
+- `limits.memory_mb` uses Docker `--memory` (docker backend) or `RLIMIT_AS` (subprocess); behavior differs by OS/backend.
 - Snapshots persist workspace files on disk under `AGENTBOX_SNAPSHOT_DIR`.
 - Prefer running the API only on trusted networks, behind auth you add yourself.
