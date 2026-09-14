@@ -1,6 +1,7 @@
 """Tests for agentbox API."""
 
 import shutil
+import sys
 from collections.abc import Iterator
 
 import pytest
@@ -27,6 +28,9 @@ def test_run_python(client: TestClient) -> None:
     body = resp.json()
     assert "hello agentbox" in body["stdout"]
     assert body["exit_code"] == 0
+    assert body["limits_applied"]["timeout_seconds"] >= 1
+    assert "memory_mb" in body["limits_applied"]
+    assert body["oom_killed"] is False
 
 
 def test_run_rejects_unknown_language(client: TestClient) -> None:
@@ -83,6 +87,7 @@ def test_unknown_snapshot_returns_400(client: TestClient) -> None:
     assert resp.status_code == 400
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="RLIMIT_AS not enforceable on macOS")
 def test_memory_limit_kills_huge_allocation(client: TestClient) -> None:
     resp = client.post(
         "/v1/run",
@@ -96,3 +101,36 @@ def test_memory_limit_kills_huge_allocation(client: TestClient) -> None:
     # RLIMIT_AS should prevent the allocation from succeeding.
     assert body["exit_code"] != 0 or "MemoryError" in body["stderr"] or body["stdout"] == ""
     assert "209715200" not in body.get("stdout", "")
+    assert body["limits_applied"] == {"timeout_seconds": 5, "memory_mb": 32}
+    assert body["oom_killed"] is True
+
+
+def test_oom_killed_on_memory_error(client: TestClient) -> None:
+    resp = client.post(
+        "/v1/run",
+        json={
+            "code": "raise MemoryError('simulated')",
+            "limits": {"memory_mb": 64, "timeout_seconds": 5},
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["exit_code"] != 0
+    assert body["oom_killed"] is True
+    assert body["limits_applied"]["memory_mb"] == 64
+
+
+def test_memory_clamped_to_max(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("agentbox.api.app.settings.max_memory_mb", 64)
+    resp = client.post(
+        "/v1/run",
+        json={
+            "code": "print('ok')",
+            "limits": {"memory_mb": 256, "timeout_seconds": 10},
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["limits_applied"]["memory_mb"] == 64
+    assert body["limits_applied"]["timeout_seconds"] == 10
+    assert "ok" in body["stdout"]

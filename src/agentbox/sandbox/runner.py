@@ -22,6 +22,7 @@ class RunResult:
     exit_code: int
     duration_ms: int
     snapshot_id: str | None = None
+    oom_killed: bool = False
 
 
 class Sandbox(Protocol):
@@ -95,13 +96,17 @@ class SubprocessSandbox:
             except FileNotFoundError as exc:
                 raise ValueError(f"Runtime not found: {exc}") from exc
             new_snapshot = save_snapshot(workspace, self.snapshot_dir) if persist_snapshot else None
+            stdout = proc.stdout[: self.max_output_bytes]
+            stderr = proc.stderr[: self.max_output_bytes]
+            exit_code = proc.returncode
         duration = int((time.monotonic() - start) * 1000)
         return RunResult(
-            stdout=proc.stdout[: self.max_output_bytes],
-            stderr=proc.stderr[: self.max_output_bytes],
-            exit_code=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
             duration_ms=duration,
             snapshot_id=new_snapshot,
+            oom_killed=_likely_oom(exit_code, stdout, stderr, mem),
         )
 
     def run_python(self, code: str) -> RunResult:
@@ -120,15 +125,38 @@ class SubprocessSandbox:
         return env
 
 
+def _likely_oom(exit_code: int, stdout: str, stderr: str, memory_mb: int | None) -> bool:
+    """Heuristic: true when the process likely hit a memory cap.
+
+    Detects: SIGKILL/SIGSEGV exit codes (-9/-11 or 128+N), MemoryError in
+    stderr, or (memory limit set + nonzero exit + empty stdout). Not perfect —
+    RLIMIT_AS failures vary by OS/runtime.
+    """
+    if memory_mb is None:
+        return False
+    if exit_code in (-9, -11, 137, 139):
+        return True
+    if "MemoryError" in stderr:
+        return True
+    return exit_code != 0 and stdout == ""
+
+
 def _memory_preexec(memory_mb: int):
     """Return a preexec_fn that caps address space for the child process."""
 
     bytes_limit = max(1, memory_mb) * 1024 * 1024
 
     def _set() -> None:
-        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        _, hard = resource.getrlimit(resource.RLIMIT_AS)
         # Keep within existing hard limit when the OS publishes one.
         cap = bytes_limit if hard == resource.RLIM_INFINITY else min(bytes_limit, hard)
-        resource.setrlimit(resource.RLIMIT_AS, (cap, hard if hard != resource.RLIM_INFINITY else cap))
+        try:
+            resource.setrlimit(
+                resource.RLIMIT_AS,
+                (cap, hard if hard != resource.RLIM_INFINITY else cap),
+            )
+        except (ValueError, OSError):
+            # macOS often rejects lowering RLIMIT_AS; leave uncapped on that host.
+            pass
 
     return _set

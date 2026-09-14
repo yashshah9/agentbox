@@ -2,6 +2,11 @@
  * Minimal TypeScript client for agentbox.
  * Usage: const box = new AgentboxClient("http://localhost:8080")
  */
+export type LimitsApplied = {
+  timeout_seconds: number;
+  memory_mb: number | null;
+};
+
 export type RunResult = {
   stdout: string;
   stderr: string;
@@ -9,6 +14,9 @@ export type RunResult = {
   duration_ms: number;
   language: string;
   backend: string;
+  snapshot_id?: string | null;
+  limits_applied: LimitsApplied;
+  oom_killed: boolean;
 };
 
 export class AgentboxClient {
@@ -20,9 +28,17 @@ export class AgentboxClient {
     return res.json();
   }
 
-  async run(code: string, language = "python", timeoutSeconds?: number): Promise<RunResult> {
+  async run(
+    code: string,
+    language = "python",
+    timeoutSeconds?: number,
+    memoryMb?: number,
+  ): Promise<RunResult> {
     const body: Record<string, unknown> = { code, language };
-    if (timeoutSeconds) body.limits = { timeout_seconds: timeoutSeconds };
+    const limits: Record<string, number> = {};
+    if (timeoutSeconds) limits.timeout_seconds = timeoutSeconds;
+    if (memoryMb != null) limits.memory_mb = memoryMb;
+    if (Object.keys(limits).length) body.limits = limits;
     const res = await fetch(`${this.baseUrl}/v1/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },

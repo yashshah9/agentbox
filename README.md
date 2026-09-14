@@ -6,7 +6,7 @@ Self-hosted **code execution sandbox** for AI agents — one `docker compose up`
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml/badge.svg)](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml)
 
-> **Status:** v0.4 — Python + Node subprocess sandbox, timeouts, `limits.memory_mb` via `RLIMIT_AS`, TypeScript client, workspace snapshots.
+> **Status:** v0.5 — Python + Node subprocess sandbox, timeouts, `limits.memory_mb` / `oom_killed` / `limits_applied`, TypeScript client, workspace snapshots.
 
 ## 60-second try
 
@@ -37,7 +37,7 @@ Every agent that writes and runs code needs a safe execution environment. Teams 
 
 - HTTP API: `POST /v1/run` executes Python or JavaScript
 - Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
-- Per-request `limits.memory_mb` (sets `RLIMIT_AS` in the child process; 16–8192)
+- Per-request `limits.memory_mb` (sets `RLIMIT_AS`; 16–8192); response includes `limits_applied` + `oom_killed`
 - Workspace snapshots: `"snapshot": true` then `"snapshot_id"`
 - Python SDK + TypeScript client (`sdk/ts/client.ts`)
 - Docker image includes Node.js for the JS runtime
@@ -118,6 +118,7 @@ docker compose run --rm test    # run unit tests
 | `AGENTBOX_PORT` | `8080` | Bind port |
 | `AGENTBOX_DEFAULT_TIMEOUT_SECONDS` | `30` | Execution timeout |
 | `AGENTBOX_DEFAULT_MEMORY_MB` | unset | Optional default `RLIMIT_AS` cap |
+| `AGENTBOX_MAX_MEMORY_MB` | unset | Clamp requested `memory_mb` to this max |
 | `AGENTBOX_SANDBOX_BACKEND` | `subprocess` | Backend selector |
 | `AGENTBOX_SNAPSHOT_DIR` | `/tmp/agentbox-snapshots` | Workspace snapshot store |
 

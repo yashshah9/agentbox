@@ -24,6 +24,7 @@ class AgentboxClient:
         snapshot_id: str | None = None,
         memory_mb: int | None = None,
     ) -> dict[str, object]:
+        """Run code; response includes limits_applied and oom_killed."""
         payload: dict[str, object] = {"code": code, "language": language}
         limits: dict[str, object] = {}
         if timeout_seconds is not None:

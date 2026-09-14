@@ -35,6 +35,11 @@ class RunRequest(BaseModel):
     snapshot_id: str | None = None
 
 
+class LimitsApplied(BaseModel):
+    timeout_seconds: int
+    memory_mb: int | None = None
+
+
 class RunResponse(BaseModel):
     stdout: str
     stderr: str
@@ -43,6 +48,8 @@ class RunResponse(BaseModel):
     language: str
     backend: str
     snapshot_id: str | None = None
+    limits_applied: LimitsApplied
+    oom_killed: bool = False
 
 
 @app.get("/health")
@@ -60,7 +67,13 @@ def run_code(req: RunRequest) -> RunResponse:
         if req.limits and req.limits.timeout_seconds
         else settings.default_timeout_seconds
     )
-    memory_mb = req.limits.memory_mb if req.limits else None
+    memory_mb = (
+        req.limits.memory_mb
+        if req.limits and req.limits.memory_mb is not None
+        else settings.default_memory_mb
+    )
+    if memory_mb is not None:
+        memory_mb = min(memory_mb, settings.max_memory_mb)
     try:
         result = sandbox.run(
             req.code,
@@ -82,4 +95,6 @@ def run_code(req: RunRequest) -> RunResponse:
         language=language,
         backend=settings.sandbox_backend,
         snapshot_id=result.snapshot_id,
+        limits_applied=LimitsApplied(timeout_seconds=timeout, memory_mb=memory_mb),
+        oom_killed=result.oom_killed,
     )

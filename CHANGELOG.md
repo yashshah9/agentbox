@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0] - 2026-09-14
+
+### Added
+- Run response includes `limits_applied: {timeout_seconds, memory_mb}` (values after defaults/clamping)
+- Run response includes `oom_killed` heuristic for memory-limit failures
+- `AGENTBOX_MAX_MEMORY_MB` clamps requested `memory_mb` (reports clamped value in `limits_applied`)
+
 ## [0.4.0] - 2026-09-14
 
 ### Added
