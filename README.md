@@ -125,11 +125,19 @@ client.close()
 ## Docker
 
 ```bash
-docker compose up agentbox        # start API on :8080
-docker compose run --rm test    # run unit tests
+docker compose up agentbox        # start API on :8080 (subprocess backend)
+docker compose run --rm test      # unit tests
 ```
 
-Note: using `AGENTBOX_SANDBOX_BACKEND=docker` from inside a container needs Docker socket access (DinD / mounted socket). Prefer running the API on the host with the Docker backend, or keep the compose service on `subprocess`.
+### Compose + Docker sandbox backend
+
+```bash
+export AGENTBOX_HOST_TMP="$(pwd)/.agentbox-work"
+mkdir -p "$AGENTBOX_HOST_TMP"
+docker compose -f compose.yaml -f compose.docker-sandbox.yaml up --build agentbox
+```
+
+Uses image target `runtime-docker` (`docker-cli` + `AGENTBOX_SANDBOX_BACKEND=docker`), mounts the Docker socket, and bind-mounts `AGENTBOX_HOST_TMP` at the **same absolute path** so nested `docker run -v` works on Docker Desktop.
 
 ## Configuration
 

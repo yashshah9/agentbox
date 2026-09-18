@@ -1,0 +1,14 @@
+# Use: mkdir -p "$AGENTBOX_HOST_TMP" && \
+#   AGENTBOX_HOST_TMP="$(pwd)/.agentbox-work" \
+#   docker compose -f compose.yaml -f compose.docker-sandbox.yaml up --build agentbox
+services:
+  agentbox:
+    build:
+      target: runtime-docker
+    environment:
+      AGENTBOX_SANDBOX_BACKEND: docker
+      TMPDIR: ${AGENTBOX_HOST_TMP:?Set AGENTBOX_HOST_TMP to an absolute host path}
+      AGENTBOX_SNAPSHOT_DIR: ${AGENTBOX_HOST_TMP}/snapshots
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${AGENTBOX_HOST_TMP}:${AGENTBOX_HOST_TMP}
