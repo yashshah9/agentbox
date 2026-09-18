@@ -71,6 +71,44 @@ def test_build_docker_argv_allows_network_when_not_deny(tmp_path: Path) -> None:
     assert "--network=none" not in argv
 
 
+def test_build_docker_argv_extra_env(tmp_path: Path) -> None:
+    argv = build_docker_argv(
+        docker_binary="docker",
+        workspace=tmp_path,
+        language="python",
+        image="python:3.12-slim",
+        network_none=False,
+        extra_env={"PYTHONPATH": "/work/.agentbox_egress"},
+    )
+    assert "--network=none" not in argv
+    assert "-e" in argv
+    assert "PYTHONPATH=/work/.agentbox_egress" in argv
+
+
+def test_docker_sandbox_allowlist_skips_network_none(tmp_path: Path) -> None:
+    box = DockerSandbox(
+        snapshot_dir=tmp_path,
+        timeout_seconds=10,
+        egress_allowlist=["example.com"],
+    )
+    fake_proc = MagicMock()
+    fake_proc.stdout = "ok\n"
+    fake_proc.stderr = ""
+    fake_proc.returncode = 0
+
+    with (
+        patch("agentbox.sandbox.docker.shutil.which", return_value="/usr/bin/docker"),
+        patch("agentbox.sandbox.docker.subprocess.run", return_value=fake_proc) as run_mock,
+    ):
+        result = box.run("print(1)", language="python")
+
+    assert result.network_isolated is True
+    assert result.egress_allowlist == ["example.com"]
+    argv = run_mock.call_args.args[0]
+    assert "--network=none" not in argv
+    assert any(a.startswith("PYTHONPATH=") for a in argv)
+
+
 def test_build_docker_argv_rejects_unknown_language(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unsupported language"):
         build_docker_argv(

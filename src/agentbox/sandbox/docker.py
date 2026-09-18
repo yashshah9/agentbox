@@ -9,6 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
+from agentbox.sandbox.egress import install_node_hook, install_python_hook, resolve_allowlist
 from agentbox.sandbox.runner import RunResult, _likely_oom
 from agentbox.sandbox.snapshots import restore_snapshot, save_snapshot
 
@@ -19,8 +20,9 @@ DEFAULT_NODE_IMAGE = "node:20-slim"
 class DockerSandbox:
     """Run code in an ephemeral ``docker run --rm`` container.
 
-    Workspace is bind-mounted at ``/work``. With ``deny_egress`` (default),
-    networking is ``--network=none``. Memory uses Docker ``--memory``.
+    Workspace is bind-mounted at ``/work``. With ``deny_egress`` and an empty
+    allowlist, networking is ``--network=none``. A non-empty allowlist uses the
+    default bridge plus a userspace soft filter (see ``egress`` module).
     """
 
     def __init__(
@@ -33,6 +35,7 @@ class DockerSandbox:
         docker_image: str = DEFAULT_PYTHON_IMAGE,
         docker_node_image: str = DEFAULT_NODE_IMAGE,
         docker_binary: str | None = None,
+        egress_allowlist: list[str] | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_output_bytes = max_output_bytes
@@ -42,6 +45,7 @@ class DockerSandbox:
         self.docker_image = docker_image
         self.docker_node_image = docker_node_image
         self.docker_binary = docker_binary or "docker"
+        self.egress_allowlist = list(egress_allowlist or [])
 
     def run(
         self,
@@ -51,10 +55,16 @@ class DockerSandbox:
         snapshot_id: str | None = None,
         persist_snapshot: bool = False,
         memory_mb: int | None = None,
+        egress_allowlist: list[str] | None = None,
     ) -> RunResult:
         docker = self._resolve_docker()
         timeout = timeout_seconds or self.timeout_seconds
         mem = memory_mb if memory_mb is not None else self.default_memory_mb
+        effective = (
+            resolve_allowlist(self.egress_allowlist, egress_allowlist)
+            if self.deny_egress
+            else []
+        )
         start = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="agentbox-docker-") as tmp:
             workspace = Path(tmp)
@@ -64,24 +74,35 @@ class DockerSandbox:
                 except FileNotFoundError as exc:
                     raise ValueError(str(exc)) from exc
             lang = language.lower()
+            extra_env: dict[str, str] = {}
             if lang == "python":
                 (workspace / "main.py").write_text(code, encoding="utf-8")
                 image = self.docker_image
+                if self.deny_egress and effective:
+                    # Hook paths must be container paths (/work/...), not host paths.
+                    host_env = install_python_hook(workspace, effective)
+                    extra_env["PYTHONPATH"] = "/work/.agentbox_egress"
+                    _ = host_env
             elif lang in {"javascript", "node"}:
                 (workspace / "main.js").write_text(code, encoding="utf-8")
                 image = self.docker_node_image
+                if self.deny_egress and effective:
+                    install_node_hook(workspace, effective)
+                    extra_env["NODE_OPTIONS"] = "--require /work/.agentbox_egress_preload.js"
             else:
                 raise ValueError(f"Unsupported language: {language}")
 
             name = f"agentbox-{uuid.uuid4().hex[:12]}"
+            network_none = self.deny_egress and not effective
             argv = build_docker_argv(
                 docker_binary=docker,
                 workspace=workspace,
                 language=lang,
                 image=image,
                 memory_mb=mem,
-                network_none=self.deny_egress,
+                network_none=network_none,
                 container_name=name,
+                extra_env=extra_env,
             )
             network_isolated = self.deny_egress
             try:
@@ -114,6 +135,7 @@ class DockerSandbox:
             snapshot_id=new_snapshot,
             oom_killed=_likely_oom(exit_code, stdout, stderr, mem),
             network_isolated=network_isolated,
+            egress_allowlist=effective if self.deny_egress else [],
         )
 
     def run_python(self, code: str) -> RunResult:
@@ -139,6 +161,7 @@ def build_docker_argv(
     memory_mb: int | None = None,
     network_none: bool = True,
     container_name: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> list[str]:
     """Build ``docker run`` argv for a language workspace (unit-testable)."""
     argv = [docker_binary, "run", "--rm"]
@@ -148,6 +171,8 @@ def build_docker_argv(
         argv.append("--network=none")
     if memory_mb is not None:
         argv.extend(["--memory", f"{max(1, memory_mb)}m"])
+    for key, value in (extra_env or {}).items():
+        argv.extend(["-e", f"{key}={value}"])
     argv.extend(
         [
             "-v",

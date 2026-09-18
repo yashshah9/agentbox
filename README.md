@@ -7,7 +7,7 @@ Self-hosted **code execution sandbox** for AI agents — one `docker compose up`
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml/badge.svg)](https://github.com/yashshah9/agentbox/actions/workflows/ci.yml)
 
-> **Status:** v0.7 — Python + Node execution, **Docker sandbox backend** (recommended isolation), subprocess default for local tests, timeouts, memory limits, Linux netns egress deny, TypeScript client, workspace snapshots.
+> **Status:** v0.8 — Docker/subprocess sandboxes, **egress allowlists**, timeouts, memory limits, snapshots, TypeScript client.
 
 ## 60-second try
 
@@ -34,7 +34,7 @@ curl -s -X POST http://localhost:8080/v1/run \
 
 Every agent that writes and runs code needs a safe execution environment. Teams either YOLO in shared containers or pay per-second for hosted sandboxes. Self-hosting gVisor/Firecracker is weeks of work.
 
-## Key features (v0.7)
+## Key features (v0.8)
 
 - HTTP API: `POST /v1/run` executes Python or JavaScript
 - **Docker backend** (`AGENTBOX_SANDBOX_BACKEND=docker`): ephemeral `docker run --rm`, `--network=none`, optional `--memory`, workspace at `/work`
@@ -42,7 +42,8 @@ Every agent that writes and runs code needs a safe execution environment. Teams 
 - Per-request `limits.timeout_seconds` (HTTP 408 on timeout)
 - Per-request `limits.memory_mb` (Docker `--memory` or subprocess `RLIMIT_AS`); response includes `limits_applied` + `oom_killed`
 - `AGENTBOX_MAX_MEMORY_MB` clamps requested memory
-- Default-deny egress: Docker uses `--network=none`; subprocess uses Linux `unshare`/`bwrap` when available (`network_isolated` in response)
+- Default-deny egress: Docker `--network=none` / Linux `unshare`/`bwrap` (`network_isolated`)
+- **Egress allowlists**: `AGENTBOX_EGRESS_ALLOWLIST` + per-request `egress_allowlist` (soft userspace filter when non-empty)
 - Workspace snapshots: `"snapshot": true` then `"snapshot_id"`
 - Python SDK + TypeScript client (`sdk/ts/client.ts`)
 - Credential stripping when the backend is not `unrestricted`
@@ -105,6 +106,11 @@ curl -X POST http://localhost:8080/v1/run \
 curl -X POST http://localhost:8080/v1/run \
   -H 'Content-Type: application/json' \
   -d '{"code": "x = bytearray(10**9)", "limits": {"memory_mb": 64, "timeout_seconds": 5}}'
+
+# Allowlisted egress (subset of AGENTBOX_EGRESS_ALLOWLIST when set):
+curl -X POST http://localhost:8080/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"print(1)","egress_allowlist":["example.com"]}'
 ```
 
 ### Python SDK
@@ -151,6 +157,7 @@ Uses image target `runtime-docker` (`docker-cli` + `AGENTBOX_SANDBOX_BACKEND=doc
 | `AGENTBOX_SANDBOX_BACKEND` | `subprocess` | `subprocess` \| `docker` \| `unrestricted` |
 | `AGENTBOX_DOCKER_IMAGE` | `python:3.12-slim` | Image for Python runs (docker backend) |
 | `AGENTBOX_DOCKER_NODE_IMAGE` | `node:20-slim` | Image for JavaScript runs (docker backend) |
+| `AGENTBOX_EGRESS_ALLOWLIST` | empty | Comma-separated `host[:port]`; empty = deny-all |
 | `AGENTBOX_SNAPSHOT_DIR` | `/tmp/agentbox-snapshots` | Workspace snapshot store |
 
 ## Running tests
@@ -168,18 +175,20 @@ pytest tests/test_docker.py -v
 - [x] `limits.memory_mb` via `RLIMIT_AS` / Docker `--memory`
 - [x] Default-deny egress via Linux netns (`unshare`/`bwrap`) when available
 - [x] Docker ephemeral-container backend
+- [x] Egress allowlists (`AGENTBOX_EGRESS_ALLOWLIST` + per-request)
 - [ ] gVisor runsc backend with warm pool
-- [ ] Egress allowlists (beyond all-or-nothing netns)
+- [ ] Kernel/iptables egress enforcement (beyond soft userspace hooks)
 
 ## License
 
 MIT
 
-## Known limitations (v0.7)
+## Known limitations (v0.8)
 
 - **Subprocess** default is convenient for tests — **not production-grade isolation**; use `AGENTBOX_SANDBOX_BACKEND=docker` for stronger isolation
 - Docker backend needs a local Docker CLI/daemon; missing CLI returns a clear 400
 - Subprocess `RLIMIT_AS` is a soft address-space cap, not a cgroup memory controller (Docker uses `--memory`)
-- Subprocess default-deny egress uses Linux `unshare`/`bwrap` when present; **macOS stays credential-scrub only** (`network_isolated: false`)
+- Subprocess default-deny egress uses Linux `unshare`/`bwrap` when present; **macOS stays credential-scrub only** (`network_isolated: false`) unless an allowlist soft-hook applies
+- Allowlists are a **soft** Python/Node userspace filter (not iptables); determined code can bypass
 - Single-node, no warm pool
 - TypeScript client is source-only (not published to npm)

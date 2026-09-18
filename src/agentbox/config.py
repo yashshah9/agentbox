@@ -17,3 +17,4 @@ class Settings(BaseSettings):
     max_memory_mb: int = 8192
     docker_image: str = "python:3.12-slim"
     docker_node_image: str = "node:20-slim"
+    egress_allowlist: str = ""  # comma-separated host[:port]

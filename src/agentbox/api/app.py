@@ -8,11 +8,13 @@ from pydantic import BaseModel, Field
 from agentbox import __version__
 from agentbox.config import Settings
 from agentbox.sandbox.docker import DockerSandbox
+from agentbox.sandbox.egress import parse_allowlist
 from agentbox.sandbox.runner import SubprocessSandbox
 
 
 def create_sandbox(settings: Settings) -> SubprocessSandbox | DockerSandbox:
     """Select execution backend from settings."""
+    allow = parse_allowlist(settings.egress_allowlist)
     backend = settings.sandbox_backend.lower().strip()
     if backend == "docker":
         return DockerSandbox(
@@ -23,6 +25,7 @@ def create_sandbox(settings: Settings) -> SubprocessSandbox | DockerSandbox:
             deny_egress=True,
             docker_image=settings.docker_image,
             docker_node_image=settings.docker_node_image,
+            egress_allowlist=allow,
         )
     if backend == "unrestricted":
         return SubprocessSandbox(
@@ -39,6 +42,7 @@ def create_sandbox(settings: Settings) -> SubprocessSandbox | DockerSandbox:
         snapshot_dir=settings.snapshot_dir,
         default_memory_mb=settings.default_memory_mb,
         deny_egress=True,
+        egress_allowlist=allow,
     )
 
 
@@ -60,6 +64,7 @@ class RunRequest(BaseModel):
     limits: ResourceLimits | None = None
     snapshot: bool = False
     snapshot_id: str | None = None
+    egress_allowlist: list[str] | None = None
 
 
 class LimitsApplied(BaseModel):
@@ -78,6 +83,7 @@ class RunResponse(BaseModel):
     limits_applied: LimitsApplied
     oom_killed: bool = False
     network_isolated: bool = False
+    egress_allowlist: list[str] = Field(default_factory=list)
 
 
 @app.get("/health")
@@ -110,6 +116,7 @@ def run_code(req: RunRequest) -> RunResponse:
             snapshot_id=req.snapshot_id,
             persist_snapshot=req.snapshot,
             memory_mb=memory_mb,
+            egress_allowlist=req.egress_allowlist,
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=408, detail="Execution timed out") from exc
@@ -126,4 +133,5 @@ def run_code(req: RunRequest) -> RunResponse:
         limits_applied=LimitsApplied(timeout_seconds=timeout, memory_mb=memory_mb),
         oom_killed=result.oom_killed,
         network_isolated=result.network_isolated,
+        egress_allowlist=list(result.egress_allowlist or []),
     )

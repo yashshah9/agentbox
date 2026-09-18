@@ -18,6 +18,7 @@ export type RunResult = {
   limits_applied: LimitsApplied;
   oom_killed: boolean;
   network_isolated: boolean;
+  egress_allowlist?: string[];
 };
 
 export class AgentboxClient {
@@ -34,12 +35,14 @@ export class AgentboxClient {
     language = "python",
     timeoutSeconds?: number,
     memoryMb?: number,
+    egressAllowlist?: string[],
   ): Promise<RunResult> {
     const body: Record<string, unknown> = { code, language };
     const limits: Record<string, number> = {};
     if (timeoutSeconds) limits.timeout_seconds = timeoutSeconds;
     if (memoryMb != null) limits.memory_mb = memoryMb;
     if (Object.keys(limits).length) body.limits = limits;
+    if (egressAllowlist) body.egress_allowlist = egressAllowlist;
     const res = await fetch(`${this.baseUrl}/v1/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },

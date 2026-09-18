@@ -23,8 +23,9 @@ class AgentboxClient:
         snapshot: bool = False,
         snapshot_id: str | None = None,
         memory_mb: int | None = None,
+        egress_allowlist: list[str] | None = None,
     ) -> dict[str, object]:
-        """Run code; response includes limits_applied, oom_killed, network_isolated."""
+        """Run code; response includes limits_applied, oom_killed, network_isolated, egress_allowlist."""
         payload: dict[str, object] = {"code": code, "language": language}
         limits: dict[str, object] = {}
         if timeout_seconds is not None:
@@ -37,6 +38,8 @@ class AgentboxClient:
             payload["snapshot"] = True
         if snapshot_id:
             payload["snapshot_id"] = snapshot_id
+        if egress_allowlist is not None:
+            payload["egress_allowlist"] = egress_allowlist
         resp = self._client.post("/v1/run", json=payload)
         self._raise_for_status(resp)
         return cast(dict[str, object], resp.json())

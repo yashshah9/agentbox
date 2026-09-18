@@ -24,6 +24,7 @@ class RunResult:
     snapshot_id: str | None = None
     oom_killed: bool = False
     network_isolated: bool = False
+    egress_allowlist: list[str] | None = None
 
 
 class Sandbox(Protocol):
@@ -34,8 +35,9 @@ class Sandbox(Protocol):
 class SubprocessSandbox:
     """MVP sandbox: isolated temp directory + subprocess timeout + optional memory cap.
 
-    When deny_egress is set, also tries Linux network-namespace isolation via
-    unshare/bwrap when available. macOS stays credential-scrub only.
+    When deny_egress is set with an empty allowlist, tries Linux network-namespace
+    isolation via unshare/bwrap. A non-empty allowlist skips netns and installs a
+    userspace soft filter instead. macOS deny-all stays credential-scrub only.
 
     ponytail: not production isolation — use DockerSandbox for stronger isolation.
     """
@@ -47,12 +49,14 @@ class SubprocessSandbox:
         deny_egress: bool = False,
         snapshot_dir: str | Path | None = None,
         default_memory_mb: int | None = None,
+        egress_allowlist: list[str] | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_output_bytes = max_output_bytes
         self.deny_egress = deny_egress
         self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else Path("/tmp/agentbox-snapshots")
         self.default_memory_mb = default_memory_mb
+        self.egress_allowlist = list(egress_allowlist or [])
 
     def run(
         self,
@@ -62,9 +66,21 @@ class SubprocessSandbox:
         snapshot_id: str | None = None,
         persist_snapshot: bool = False,
         memory_mb: int | None = None,
+        egress_allowlist: list[str] | None = None,
     ) -> RunResult:
+        from agentbox.sandbox.egress import (
+            install_node_hook,
+            install_python_hook,
+            resolve_allowlist,
+        )
+
         timeout = timeout_seconds or self.timeout_seconds
         mem = memory_mb if memory_mb is not None else self.default_memory_mb
+        effective = (
+            resolve_allowlist(self.egress_allowlist, egress_allowlist)
+            if self.deny_egress
+            else []
+        )
         start = time.monotonic()
         env = self._env()
         with tempfile.TemporaryDirectory(prefix="agentbox-") as tmp:
@@ -74,20 +90,27 @@ class SubprocessSandbox:
                     restore_snapshot(snapshot_id, workspace, self.snapshot_dir)
                 except FileNotFoundError as exc:
                     raise ValueError(str(exc)) from exc
-            if language == "python":
+            lang = language.lower()
+            if lang == "python":
                 script = workspace / "main.py"
                 script.write_text(code, encoding="utf-8")
                 argv = ["python3", str(script)]
-            elif language in {"javascript", "node"}:
+                if self.deny_egress and effective:
+                    env.update(install_python_hook(workspace, effective))
+            elif lang in {"javascript", "node"}:
                 script = workspace / "main.js"
                 script.write_text(code, encoding="utf-8")
                 node = shutil.which("node") or "node"
                 argv = [node, str(script)]
+                if self.deny_egress and effective:
+                    env.update(install_node_hook(workspace, effective))
             else:
                 raise ValueError(f"Unsupported language: {language}")
             network_isolated = False
-            if self.deny_egress:
+            if self.deny_egress and not effective:
                 argv, network_isolated = wrap_deny_egress(argv)
+            elif self.deny_egress and effective:
+                network_isolated = True
             preexec = _memory_preexec(mem) if mem else None
             try:
                 proc = subprocess.run(
@@ -115,6 +138,7 @@ class SubprocessSandbox:
             snapshot_id=new_snapshot,
             oom_killed=_likely_oom(exit_code, stdout, stderr, mem),
             network_isolated=network_isolated,
+            egress_allowlist=effective if self.deny_egress else [],
         )
 
     def run_python(self, code: str) -> RunResult:

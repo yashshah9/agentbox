@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0] - 2026-09-18
+
+### Added
+- Egress allowlists: `AGENTBOX_EGRESS_ALLOWLIST=host[:port],...` and per-request `egress_allowlist`
+- Empty allowlist + deny → Docker `--network=none` / Linux netns (unchanged)
+- Non-empty allowlist → soft userspace filter (Python sitecustomize / Node `--require`); response includes `egress_allowlist`
+- Request list must be a subset of the global allowlist when the global list is set
+
+### Notes
+- Soft allowlist is not a kernel firewall; determined code can bypass. Prefer Docker + short allowlists.
+
 ## [0.7.0] - 2026-09-14
 
 ### Added

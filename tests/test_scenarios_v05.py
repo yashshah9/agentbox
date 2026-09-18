@@ -20,13 +20,13 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
-def test_health_version_070(client: TestClient) -> None:
+def test_health_version_080(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.7.0"
-    assert __version__ == "0.7.0"
+    assert body["version"] == "0.8.0"
+    assert __version__ == "0.8.0"
 
 
 def test_python_success(client: TestClient) -> None:
