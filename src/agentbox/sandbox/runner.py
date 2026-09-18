@@ -96,21 +96,29 @@ class SubprocessSandbox:
                 script.write_text(code, encoding="utf-8")
                 argv = ["python3", str(script)]
                 if self.deny_egress and effective:
-                    env.update(install_python_hook(workspace, effective))
+                    hook = install_python_hook(workspace, effective)
+                    prev = env.get("PYTHONPATH", "")
+                    env["PYTHONPATH"] = hook["PYTHONPATH"] + (
+                        (os.pathsep + prev) if prev else ""
+                    )
             elif lang in {"javascript", "node"}:
                 script = workspace / "main.js"
                 script.write_text(code, encoding="utf-8")
                 node = shutil.which("node") or "node"
                 argv = [node, str(script)]
                 if self.deny_egress and effective:
-                    env.update(install_node_hook(workspace, effective))
+                    hook = install_node_hook(workspace, effective)
+                    prev = env.get("NODE_OPTIONS", "")
+                    require = hook["NODE_OPTIONS"]
+                    env["NODE_OPTIONS"] = f"{prev} {require}".strip() if prev else require
             else:
                 raise ValueError(f"Unsupported language: {language}")
             network_isolated = False
             if self.deny_egress and not effective:
                 argv, network_isolated = wrap_deny_egress(argv)
             elif self.deny_egress and effective:
-                network_isolated = True
+                # Soft allowlist keeps real networking; do not claim netns isolation.
+                network_isolated = False
             preexec = _memory_preexec(mem) if mem else None
             try:
                 proc = subprocess.run(

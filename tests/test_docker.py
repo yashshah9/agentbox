@@ -102,7 +102,7 @@ def test_docker_sandbox_allowlist_skips_network_none(tmp_path: Path) -> None:
     ):
         result = box.run("print(1)", language="python")
 
-    assert result.network_isolated is True
+    assert result.network_isolated is False
     assert result.egress_allowlist == ["example.com"]
     argv = run_mock.call_args.args[0]
     assert "--network=none" not in argv

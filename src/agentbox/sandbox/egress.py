@@ -90,8 +90,9 @@ _orig_connect = socket.socket.connect
 
 def _host_ok(host: str) -> bool:
     h = (host or "").lower().strip("[]")
-    if not h or h in {{"localhost", "127.0.0.1", "::1"}}:
+    if not h:
         return True
+    # localhost/loopback only if explicitly allowlisted (SSRF guard)
     if h in _ALLOWED_HOSTS or h in _ALLOWED_IPS:
         return True
     try:
@@ -133,37 +134,100 @@ socket.socket.connect = _connect
 
 
 def install_node_hook(workspace: Path, hosts: list[str]) -> dict[str, str]:
-    """Write Node --require preload; return env vars to enable it."""
+    """Write Node --require preload; return env vars to enable it.
+
+    Covers net.Socket, net.connect, http(s).request/get, and global fetch
+    (undici on Node 18+) — soft filter only, not a kernel firewall.
+    """
     path = workspace / ".agentbox_egress_preload.js"
     hosts_json = json.dumps(hosts)
     path.write_text(
         f"""/* agentbox egress soft allowlist — auto-generated */
 const net = require('net');
+const http = require('http');
+const https = require('https');
+const {{ URL }} = require('url');
 const allowed = new Set({hosts_json}.map((h) => String(h).toLowerCase()));
 const allowedHosts = new Set([...allowed].map((h) => h.split(':')[0]));
 function hostOk(host) {{
   if (!host) return true;
   const h = String(host).toLowerCase().replace(/^\\[|\\]$/g, '');
-  if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
+  // localhost/loopback only if explicitly allowlisted (SSRF guard)
   return allowedHosts.has(h) || allowed.has(h);
+}}
+function deny(host) {{
+  const err = new Error('agentbox egress denied: ' + host);
+  err.code = 'EGRESS_DENIED';
+  throw err;
+}}
+function hostFromConnectArgs(args) {{
+  if (typeof args[0] === 'object' && args[0] !== null) {{
+    return args[0].host || args[0].hostname || null;
+  }}
+  if (typeof args[1] === 'string') return args[1];
+  if (typeof args[0] === 'string' && args[0].includes(':')) {{
+    return args[0].split(':')[0];
+  }}
+  return null;
+}}
+function hostFromRequestArgs(args) {{
+  let url = null;
+  let opts = null;
+  if (typeof args[0] === 'string' || args[0] instanceof URL) {{
+    url = args[0];
+    opts = typeof args[1] === 'object' ? args[1] : null;
+  }} else if (typeof args[0] === 'object' && args[0] !== null) {{
+    opts = args[0];
+  }}
+  if (opts && (opts.hostname || opts.host)) {{
+    return opts.hostname || String(opts.host).split(':')[0];
+  }}
+  if (url) {{
+    try {{ return new URL(url).hostname; }} catch (_) {{ return null; }}
+  }}
+  return null;
+}}
+function assertHost(host) {{
+  if (host && !hostOk(host)) deny(host);
 }}
 const origConnect = net.Socket.prototype.connect;
 net.Socket.prototype.connect = function (...args) {{
-  let host = null;
-  if (typeof args[0] === 'object' && args[0] !== null) {{
-    host = args[0].host || args[0].hostname;
-  }} else if (typeof args[1] === 'string') {{
-    host = args[1];
-  }} else if (typeof args[0] === 'string' && args[0].includes(':')) {{
-    host = args[0].split(':')[0];
-  }}
-  if (host && !hostOk(host)) {{
-    const err = new Error('agentbox egress denied: ' + host);
-    err.code = 'EGRESS_DENIED';
-    throw err;
-  }}
+  assertHost(hostFromConnectArgs(args));
   return origConnect.apply(this, args);
 }};
+for (const name of ['connect', 'createConnection']) {{
+  const orig = net[name];
+  if (typeof orig !== 'function') continue;
+  net[name] = function (...args) {{
+    assertHost(hostFromConnectArgs(args));
+    return orig.apply(this, args);
+  }};
+}}
+function wrapHttp(mod) {{
+  for (const name of ['request', 'get']) {{
+    const orig = mod[name];
+    if (typeof orig !== 'function') continue;
+    mod[name] = function (...args) {{
+      assertHost(hostFromRequestArgs(args));
+      return orig.apply(this, args);
+    }};
+  }}
+}}
+wrapHttp(http);
+wrapHttp(https);
+if (typeof globalThis.fetch === 'function') {{
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = function (input, init) {{
+    let host = null;
+    try {{
+      const raw = typeof input === 'string' ? input
+        : (input && typeof input.url === 'string' ? input.url : null);
+      if (raw) host = new URL(raw).hostname;
+    }} catch (_) {{}}
+    assertHost(host);
+    return origFetch.apply(this, arguments);
+  }};
+}}
 """,
         encoding="utf-8",
     )

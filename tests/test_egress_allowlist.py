@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agentbox.sandbox.egress import (
+    install_node_hook,
     install_python_hook,
     parse_allowlist,
     resolve_allowlist,
@@ -44,7 +45,7 @@ def test_python_hook_blocks_disallowed(tmp_path: Path) -> None:
         "    print('DENIED' if 'egress denied' in str(e) else type(e).__name__)\n",
         language="python",
     )
-    assert result.network_isolated is True
+    assert result.network_isolated is False
     assert result.egress_allowlist == ["example.com"]
     assert "DENIED" in result.stdout
 
@@ -61,8 +62,40 @@ def test_python_hook_allows_listed_host(tmp_path: Path) -> None:
         "    print('ERR', type(e).__name__)\n",
         language="python",
     )
-    assert result.network_isolated is True
+    assert result.network_isolated is False
     # Offline CI may fail DNS; allow ERR URLError but never DENIED for listed host
+    assert "DENIED" not in result.stdout
+    assert "OK" in result.stdout or "ERR" in result.stdout
+
+
+def test_python_hook_blocks_localhost_unless_listed(tmp_path: Path) -> None:
+    box = SubprocessSandbox(deny_egress=True, egress_allowlist=["example.com"], timeout_seconds=10)
+    result = box.run(
+        "import urllib.request\n"
+        "try:\n"
+        "    urllib.request.urlopen('http://127.0.0.1:9/', timeout=2)\n"
+        "    print('REACHED')\n"
+        "except OSError as e:\n"
+        "    print('DENIED' if 'egress denied' in str(e) else type(e).__name__)\n",
+        language="python",
+    )
+    assert "DENIED" in result.stdout
+
+
+def test_python_hook_allows_explicit_localhost(tmp_path: Path) -> None:
+    box = SubprocessSandbox(
+        deny_egress=True, egress_allowlist=["127.0.0.1", "localhost"], timeout_seconds=10
+    )
+    result = box.run(
+        "import urllib.request\n"
+        "try:\n"
+        "    urllib.request.urlopen('http://127.0.0.1:9/', timeout=2)\n"
+        "    print('OK')\n"
+        "except Exception as e:\n"
+        "    # Connection refused is fine — must not be egress denied\n"
+        "    print('DENIED' if 'egress denied' in str(e) else 'ERR')\n",
+        language="python",
+    )
     assert "DENIED" not in result.stdout
     assert "OK" in result.stdout or "ERR" in result.stdout
 
@@ -71,3 +104,48 @@ def test_install_python_hook_writes_sitecustomize(tmp_path: Path) -> None:
     env = install_python_hook(tmp_path, ["api.openai.com"])
     assert (tmp_path / ".agentbox_egress" / "sitecustomize.py").is_file()
     assert "PYTHONPATH" in env
+
+
+def test_install_node_hook_covers_fetch(tmp_path: Path) -> None:
+    env = install_node_hook(tmp_path, ["example.com"])
+    text = (tmp_path / ".agentbox_egress_preload.js").read_text(encoding="utf-8")
+    assert "NODE_OPTIONS" in env
+    assert "globalThis.fetch" in text
+    assert "wrapHttp" in text or "https.request" in text or "mod[name]" in text
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("node") is None, reason="node not installed"
+)
+def test_node_fetch_blocks_disallowed(tmp_path: Path) -> None:
+    box = SubprocessSandbox(deny_egress=True, egress_allowlist=["example.com"], timeout_seconds=10)
+    result = box.run(
+        "try {\n"
+        "  const p = fetch('https://httpbin.org/get');\n"
+        "  p.then(() => console.log('REACHED'))"
+        ".catch((e) => console.log("
+        "String(e && e.message || e).includes('egress denied') ? 'DENIED' : 'ERR'));\n"
+        "} catch (e) {\n"
+        "  console.log(String(e.message || e).includes('egress denied') ? 'DENIED' : 'ERR');\n"
+        "}\n",
+        language="javascript",
+    )
+    assert result.network_isolated is False
+    assert "DENIED" in result.stdout
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("node") is None, reason="node not installed"
+)
+def test_node_https_request_blocks_disallowed(tmp_path: Path) -> None:
+    box = SubprocessSandbox(deny_egress=True, egress_allowlist=["example.com"], timeout_seconds=10)
+    result = box.run(
+        "const https = require('https');\n"
+        "try {\n"
+        "  https.get('https://httpbin.org/get', () => console.log('REACHED'));\n"
+        "} catch (e) {\n"
+        "  console.log(String(e.message || e).includes('egress denied') ? 'DENIED' : 'ERR');\n"
+        "}\n",
+        language="javascript",
+    )
+    assert "DENIED" in result.stdout

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.1] - 2026-09-19
+
+- Honest soft-allowlist isolation; Node fetch/http hooks; localhost SSRF guard
+
+
 ## [0.8.0] - 2026-09-18
 
 ### Added

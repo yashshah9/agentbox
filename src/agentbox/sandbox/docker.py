@@ -104,7 +104,7 @@ class DockerSandbox:
                 container_name=name,
                 extra_env=extra_env,
             )
-            network_isolated = self.deny_egress
+            network_isolated = self.deny_egress and not effective
             try:
                 proc = subprocess.run(
                     argv,
